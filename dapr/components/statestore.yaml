@@ -1,0 +1,131 @@
+# =============================================================================
+# Dapr State Store Component - AWS DynamoDB
+# =============================================================================
+# Optional state store for persisting service state using DynamoDB
+# =============================================================================
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore
+  namespace: ecommerce
+spec:
+  type: state.aws.dynamodb
+  version: v1
+  metadata:
+    - name: region
+      value: "us-west-2"
+    - name: table
+      value: "ecommerce-state"
+    - name: partitionKey
+      value: "pk"
+    # Use IRSA for authentication (no explicit credentials needed)
+---
+# =============================================================================
+# Dapr Secrets Store Component - AWS Secrets Manager
+# =============================================================================
+# Secure storage for sensitive configuration
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: secretstore
+  namespace: ecommerce
+spec:
+  type: secretstores.aws.secretmanager
+  version: v1
+  metadata:
+    - name: region
+      value: "us-west-2"
+---
+# =============================================================================
+# Dapr Resiliency Configuration
+# =============================================================================
+# Retry and circuit breaker policies for pub/sub operations
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: ecommerce-resiliency
+  namespace: ecommerce
+spec:
+  # ===========================================================================
+  # Retry Policies
+  # ===========================================================================
+  policies:
+    retries:
+      # Default retry policy for all operations
+      defaultRetry:
+        policy: exponential
+        maxInterval: 60s
+        maxRetries: 5
+      
+      # Retry policy for pub/sub operations
+      pubsubRetry:
+        policy: exponential
+        maxInterval: 30s
+        maxRetries: 3
+      
+      # Retry policy for service invocation
+      serviceRetry:
+        policy: constant
+        duration: 2s
+        maxRetries: 3
+    
+    # =========================================================================
+    # Circuit Breaker Policies
+    # =========================================================================
+    circuitBreakers:
+      defaultCircuitBreaker:
+        maxRequests: 1
+        interval: 60s
+        timeout: 30s
+        trip: consecutiveFailures >= 5
+      
+      pubsubCircuitBreaker:
+        maxRequests: 1
+        interval: 30s
+        timeout: 15s
+        trip: consecutiveFailures >= 3
+    
+    # =========================================================================
+    # Timeout Policies
+    # =========================================================================
+    timeouts:
+      defaultTimeout: 30s
+      pubsubTimeout: 10s
+      serviceTimeout: 15s
+  
+  # ===========================================================================
+  # Target Configuration - Apply policies to specific operations
+  # ===========================================================================
+  targets:
+    # Apply to all apps
+    apps:
+      product-service:
+        retry: serviceRetry
+        circuitBreaker: defaultCircuitBreaker
+        timeout: serviceTimeout
+      
+      cart-service:
+        retry: serviceRetry
+        circuitBreaker: defaultCircuitBreaker
+        timeout: serviceTimeout
+      
+      order-service:
+        retry: serviceRetry
+        circuitBreaker: defaultCircuitBreaker
+        timeout: serviceTimeout
+      
+      payment-service:
+        retry: serviceRetry
+        circuitBreaker: defaultCircuitBreaker
+        timeout: serviceTimeout
+    
+    # Apply to components
+    components:
+      pubsub:
+        outbound:
+          retry: pubsubRetry
+          circuitBreaker: pubsubCircuitBreaker
+          timeout: pubsubTimeout
+        inbound:
+          retry: pubsubRetry
+          timeout: pubsubTimeout

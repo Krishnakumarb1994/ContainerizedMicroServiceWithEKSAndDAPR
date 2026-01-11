@@ -1,0 +1,220 @@
+# =============================================================================
+# Amazon EKS Cluster Configuration
+# =============================================================================
+# eksctl configuration file for creating an EKS cluster optimized for
+# microservices with Dapr pub/sub messaging.
+#
+# Usage:
+#   eksctl create cluster -f eks-cluster.yaml
+#   eksctl delete cluster -f eks-cluster.yaml
+#
+# Prerequisites:
+#   - AWS CLI configured with appropriate credentials
+#   - eksctl v0.165.0 or later installed
+#   - kubectl installed
+# =============================================================================
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  # Cluster name - must be unique within the AWS region
+  name: ecommerce-eks-cluster
+  region: us-west-2
+  version: "1.29"  # Kubernetes version
+  tags:
+    Project: ecommerce-platform
+    Environment: production
+    ManagedBy: eksctl
+    Owner: devops-team
+
+# =============================================================================
+# IAM Configuration
+# =============================================================================
+iam:
+  # Enable IAM Roles for Service Accounts (IRSA)
+  withOIDC: true
+  
+  # Service accounts with IAM role associations
+  serviceAccounts:
+    # Service account for e-commerce microservices
+    - metadata:
+        name: ecommerce-service-account
+        namespace: ecommerce
+        labels:
+          app.kubernetes.io/name: ecommerce-service-account
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AmazonSQSFullAccess
+        - arn:aws:iam::aws:policy/AmazonSNSFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+      roleName: ecommerce-eks-service-role
+      roleOnly: false
+    
+    # Service account for AWS Load Balancer Controller
+    - metadata:
+        name: aws-load-balancer-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+
+# =============================================================================
+# VPC Configuration
+# =============================================================================
+vpc:
+  cidr: 10.0.0.0/16
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  nat:
+    gateway: HighlyAvailable  # NAT gateway in each AZ for HA
+  
+  # Subnet configuration
+  subnets:
+    public:
+      us-west-2a:
+        cidr: 10.0.1.0/24
+        az: us-west-2a
+      us-west-2b:
+        cidr: 10.0.2.0/24
+        az: us-west-2b
+      us-west-2c:
+        cidr: 10.0.3.0/24
+        az: us-west-2c
+    private:
+      us-west-2a:
+        cidr: 10.0.10.0/24
+        az: us-west-2a
+      us-west-2b:
+        cidr: 10.0.11.0/24
+        az: us-west-2b
+      us-west-2c:
+        cidr: 10.0.12.0/24
+        az: us-west-2c
+
+# =============================================================================
+# Managed Node Groups
+# =============================================================================
+managedNodeGroups:
+  # Primary node group for application workloads
+  - name: ecommerce-app-nodes
+    instanceType: t3.medium
+    desiredCapacity: 3
+    minSize: 2
+    maxSize: 10
+    volumeSize: 50
+    volumeType: gp3
+    volumeEncrypted: true
+    
+    # Use private subnets for worker nodes
+    privateNetworking: true
+    
+    # Node labels for pod scheduling
+    labels:
+      role: application
+      workload-type: microservices
+    
+    # Taints (optional - uncomment if needed)
+    # taints:
+    #   - key: dedicated
+    #     value: application
+    #     effect: NoSchedule
+    
+    # Enable SSH access (optional)
+    ssh:
+      allow: false
+    
+    # IAM policies for nodes
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        cloudWatch: true
+        ebs: true
+        efs: false
+        albIngress: true
+        xRay: true
+    
+    # Tags for nodes
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/ecommerce-eks-cluster: "owned"
+
+  # System node group for cluster components
+  - name: ecommerce-system-nodes
+    instanceType: t3.small
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 4
+    volumeSize: 30
+    volumeType: gp3
+    privateNetworking: true
+    
+    labels:
+      role: system
+      workload-type: cluster-services
+    
+    taints:
+      - key: CriticalAddonsOnly
+        value: "true"
+        effect: PreferNoSchedule
+    
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        cloudWatch: true
+
+# =============================================================================
+# Add-ons Configuration
+# =============================================================================
+addons:
+  # VPC CNI for pod networking
+  - name: vpc-cni
+    version: latest
+    attachPolicyARNs:
+      - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+    configurationValues: |-
+      enableNetworkPolicy: "true"
+  
+  # CoreDNS for service discovery
+  - name: coredns
+    version: latest
+  
+  # kube-proxy for network routing
+  - name: kube-proxy
+    version: latest
+  
+  # EBS CSI Driver for persistent volumes
+  - name: aws-ebs-csi-driver
+    version: latest
+    attachPolicyARNs:
+      - arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+
+# =============================================================================
+# CloudWatch Logging
+# =============================================================================
+cloudWatch:
+  clusterLogging:
+    enableTypes:
+      - api
+      - audit
+      - authenticator
+      - controllerManager
+      - scheduler
+    logRetentionInDays: 30
+
+# =============================================================================
+# Secrets Encryption
+# =============================================================================
+secretsEncryption:
+  keyARN: ""  # Leave empty to auto-create, or specify existing KMS key ARN
+
+# =============================================================================
+# GitOps (optional - for Flux integration)
+# =============================================================================
+# gitops:
+#   flux:
+#     gitProvider: github
+#     flags:
+#       owner: your-org
+#       repository: ecommerce-gitops
+#       branch: main
+#       path: clusters/production

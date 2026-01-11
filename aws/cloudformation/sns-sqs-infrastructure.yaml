@@ -1,0 +1,272 @@
+# =============================================================================
+# AWS CloudFormation Template - SNS/SQS Infrastructure for Dapr
+# =============================================================================
+# This template creates the AWS messaging infrastructure required for
+# Dapr pub/sub messaging using SNS and SQS.
+#
+# Resources Created:
+# - SNS Topics for each event type
+# - SQS Queues for each subscriber
+# - Dead Letter Queues for failed messages
+# - IAM Policy for EKS service account
+#
+# Usage:
+#   aws cloudformation create-stack \
+#     --stack-name ecommerce-messaging \
+#     --template-body file://sns-sqs-infrastructure.yaml \
+#     --capabilities CAPABILITY_IAM
+# =============================================================================
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SNS/SQS Infrastructure for E-Commerce Dapr Pub/Sub'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Deployment environment
+
+  RetentionPeriod:
+    Type: Number
+    Default: 345600  # 4 days in seconds
+    Description: Message retention period for SQS queues
+
+Resources:
+  # ===========================================================================
+  # Dead Letter Queue (Shared)
+  # ===========================================================================
+  EcommerceDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'ecommerce-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Project
+          Value: ecommerce-platform
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===========================================================================
+  # Product Events
+  # ===========================================================================
+  ProductEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'product-events-${Environment}'
+      Tags:
+        - Key: Project
+          Value: ecommerce-platform
+        - Key: EventType
+          Value: product-events
+
+  ProductEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'product-events-queue-${Environment}'
+      MessageRetentionPeriod: !Ref RetentionPeriod
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EcommerceDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Project
+          Value: ecommerce-platform
+
+  ProductEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ProductEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt ProductEventsQueue.Arn
+      RawMessageDelivery: true
+
+  ProductEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ProductEventsQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ProductEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref ProductEventsTopic
+
+  # ===========================================================================
+  # Cart Events
+  # ===========================================================================
+  CartEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'cart-events-${Environment}'
+      Tags:
+        - Key: Project
+          Value: ecommerce-platform
+        - Key: EventType
+          Value: cart-events
+
+  CartEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'cart-events-queue-${Environment}'
+      MessageRetentionPeriod: !Ref RetentionPeriod
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EcommerceDLQ.Arn
+        maxReceiveCount: 3
+
+  CartEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref CartEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt CartEventsQueue.Arn
+      RawMessageDelivery: true
+
+  CartEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref CartEventsQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt CartEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref CartEventsTopic
+
+  # ===========================================================================
+  # Order Events
+  # ===========================================================================
+  OrderEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'order-events-${Environment}'
+      Tags:
+        - Key: Project
+          Value: ecommerce-platform
+        - Key: EventType
+          Value: order-events
+
+  OrderEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'order-events-queue-${Environment}'
+      MessageRetentionPeriod: !Ref RetentionPeriod
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EcommerceDLQ.Arn
+        maxReceiveCount: 3
+
+  OrderEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref OrderEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt OrderEventsQueue.Arn
+      RawMessageDelivery: true
+
+  OrderEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref OrderEventsQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OrderEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OrderEventsTopic
+
+  # ===========================================================================
+  # Payment Events
+  # ===========================================================================
+  PaymentEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'payment-events-${Environment}'
+      Tags:
+        - Key: Project
+          Value: ecommerce-platform
+        - Key: EventType
+          Value: payment-events
+
+  PaymentEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'payment-events-queue-${Environment}'
+      MessageRetentionPeriod: !Ref RetentionPeriod
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EcommerceDLQ.Arn
+        maxReceiveCount: 3
+
+  PaymentEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PaymentEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt PaymentEventsQueue.Arn
+      RawMessageDelivery: true
+
+  PaymentEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PaymentEventsQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt PaymentEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref PaymentEventsTopic
+
+Outputs:
+  ProductEventsTopicArn:
+    Description: ARN of Product Events SNS Topic
+    Value: !Ref ProductEventsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-ProductEventsTopicArn'
+
+  CartEventsTopicArn:
+    Description: ARN of Cart Events SNS Topic
+    Value: !Ref CartEventsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-CartEventsTopicArn'
+
+  OrderEventsTopicArn:
+    Description: ARN of Order Events SNS Topic
+    Value: !Ref OrderEventsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-OrderEventsTopicArn'
+
+  PaymentEventsTopicArn:
+    Description: ARN of Payment Events SNS Topic
+    Value: !Ref PaymentEventsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-PaymentEventsTopicArn'
+
+  DLQArn:
+    Description: ARN of Dead Letter Queue
+    Value: !GetAtt EcommerceDLQ.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DLQArn'

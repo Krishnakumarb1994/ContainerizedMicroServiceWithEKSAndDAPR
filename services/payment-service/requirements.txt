@@ -1,0 +1,10 @@
+# PaymentService Dependencies
+Flask==3.0.0
+requests==2.31.0
+gunicorn==21.2.0
+opentelemetry-api==1.22.0
+opentelemetry-sdk==1.22.0
+opentelemetry-instrumentation-flask==0.43b0
+opentelemetry-exporter-otlp==1.22.0
+boto3==1.34.0
+prometheus-flask-exporter==0.23.0

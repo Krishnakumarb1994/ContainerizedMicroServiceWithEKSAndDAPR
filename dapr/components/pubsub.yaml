@@ -1,0 +1,233 @@
+# =============================================================================
+# Dapr Pub/Sub Component - AWS SNS/SQS
+# =============================================================================
+# This component configures Dapr to use AWS SNS (Simple Notification Service)
+# and SQS (Simple Queue Service) for pub/sub messaging.
+#
+# Architecture:
+# - SNS Topic: Receives published messages
+# - SQS Queue: Subscribes to SNS topic for message delivery
+# - DLQ (Dead Letter Queue): Handles failed message processing
+#
+# Message Flow:
+# Publisher → Dapr Sidecar → SNS Topic → SQS Queue → Dapr Sidecar → Subscriber
+# =============================================================================
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: pubsub
+    app.kubernetes.io/component: dapr-component
+    app.kubernetes.io/part-of: ecommerce-platform
+spec:
+  type: pubsub.aws.snssqs
+  version: v1
+  metadata:
+    # =========================================================================
+    # AWS Region Configuration
+    # =========================================================================
+    - name: region
+      value: "us-west-2"
+    
+    # =========================================================================
+    # Authentication - Use IAM Role via IRSA (recommended for EKS)
+    # =========================================================================
+    # When using IRSA, access key and secret are not needed
+    # The pod's service account assumes the IAM role automatically
+    
+    # Alternative: Use explicit credentials (not recommended for production)
+    # - name: accessKey
+    #   secretKeyRef:
+    #     name: aws-credentials
+    #     key: access-key
+    # - name: secretKey
+    #   secretKeyRef:
+    #     name: aws-credentials
+    #     key: secret-key
+    
+    # =========================================================================
+    # SNS/SQS Configuration
+    # =========================================================================
+    # Enable message ordering with FIFO queues (optional)
+    - name: fifo
+      value: "false"
+    
+    # Disable FIFO content-based deduplication
+    - name: fifoContentBasedDeduplication
+      value: "false"
+    
+    # SQS Queue settings
+    - name: sqsDeadLettersQueueName
+      value: "ecommerce-dlq"
+    
+    # Maximum number of times a message can be received before going to DLQ
+    - name: messageMaxRetries
+      value: "3"
+    
+    # Message visibility timeout in seconds
+    - name: messageVisibilityTimeout
+      value: "30"
+    
+    # Long polling wait time in seconds (reduces API calls)
+    - name: messageWaitTimeSeconds
+      value: "20"
+    
+    # Maximum messages to receive per batch
+    - name: messageReceiveLimit
+      value: "10"
+    
+    # =========================================================================
+    # Concurrency and Performance
+    # =========================================================================
+    # Number of concurrent message handlers
+    - name: concurrencyMode
+      value: "parallel"
+    
+    # Disable entity management if queues/topics are pre-created
+    - name: disableEntityManagement
+      value: "false"
+    
+    # Disable delete SNS subscription on component removal
+    - name: disableDeleteOnRetryLimit
+      value: "false"
+    
+    # =========================================================================
+    # Endpoint Configuration (for LocalStack testing)
+    # =========================================================================
+    # Uncomment for local development with LocalStack
+    # - name: endpoint
+    #   value: "http://localstack:4566"
+---
+# =============================================================================
+# Dapr Configuration - Tracing and Metrics
+# =============================================================================
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: ecommerce-config
+  namespace: ecommerce
+spec:
+  # ===========================================================================
+  # Distributed Tracing Configuration
+  # ===========================================================================
+  tracing:
+    samplingRate: "1"  # Sample 100% of traces
+    zipkin:
+      endpointAddress: "http://zipkin.observability.svc.cluster.local:9411/api/v2/spans"
+    # Alternative: Use AWS X-Ray via OTEL collector
+    # otel:
+    #   endpointAddress: "http://otel-collector.observability.svc.cluster.local:4317"
+    #   isSecure: false
+    #   protocol: "grpc"
+  
+  # ===========================================================================
+  # Metrics Configuration
+  # ===========================================================================
+  metrics:
+    enabled: true
+    rules:
+      - name: http/server/request_count
+        labels:
+          - name: path
+            regex:
+              "^/health$": "/health"
+              ".*": "/other"
+  
+  # ===========================================================================
+  # API Access Control
+  # ===========================================================================
+  api:
+    allowed:
+      - name: state
+        version: v1
+        protocol: http
+      - name: pubsub
+        version: v1
+        protocol: http
+      - name: invoke
+        version: v1
+        protocol: http
+      - name: bindings
+        version: v1
+        protocol: http
+  
+  # ===========================================================================
+  # Middleware Pipeline
+  # ===========================================================================
+  httpPipeline:
+    handlers:
+      - name: ratelimit
+        type: middleware.http.ratelimit
+      - name: uppercase
+        type: middleware.http.uppercase
+  
+  # ===========================================================================
+  # Secrets Configuration
+  # ===========================================================================
+  secrets:
+    scopes:
+      - storeName: kubernetes
+        defaultAccess: deny
+        allowedSecrets:
+          - aws-credentials
+---
+# =============================================================================
+# Dapr Pub/Sub Subscriptions
+# =============================================================================
+# Declarative subscriptions for routing messages to services
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: order-events-subscription
+  namespace: ecommerce
+spec:
+  pubsubname: pubsub
+  topic: order-events
+  routes:
+    default: /events/order
+  scopes:
+    - order-service
+    - product-service
+---
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: payment-events-subscription
+  namespace: ecommerce
+spec:
+  pubsubname: pubsub
+  topic: payment-events
+  routes:
+    default: /events/payment
+  scopes:
+    - payment-service
+    - order-service
+---
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: product-events-subscription
+  namespace: ecommerce
+spec:
+  pubsubname: pubsub
+  topic: product-events
+  routes:
+    default: /events/product
+  scopes:
+    - cart-service
+    - order-service
+---
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: cart-events-subscription
+  namespace: ecommerce
+spec:
+  pubsubname: pubsub
+  topic: cart-events
+  routes:
+    default: /events/cart
+  scopes:
+    - order-service

@@ -1,0 +1,22 @@
+# ProductService Dependencies
+# ===========================
+# Flask web framework for REST API
+Flask==3.0.0
+
+# Requests library for Dapr HTTP calls
+requests==2.31.0
+
+# Gunicorn WSGI server for production deployment
+gunicorn==21.2.0
+
+# OpenTelemetry for distributed tracing (CloudWatch integration)
+opentelemetry-api==1.22.0
+opentelemetry-sdk==1.22.0
+opentelemetry-instrumentation-flask==0.43b0
+opentelemetry-exporter-otlp==1.22.0
+
+# AWS SDK for direct AWS service integration (optional)
+boto3==1.34.0
+
+# Health check and metrics
+prometheus-flask-exporter==0.23.0

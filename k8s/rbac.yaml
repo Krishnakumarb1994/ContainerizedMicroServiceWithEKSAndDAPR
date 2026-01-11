@@ -1,0 +1,110 @@
+# =============================================================================
+# Service Account and RBAC Configuration
+# =============================================================================
+# Creates service account with appropriate permissions for EKS/Dapr integration
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecommerce-service-account
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: ecommerce-service-account
+    app.kubernetes.io/part-of: ecommerce-platform
+  annotations:
+    # AWS IAM role annotation for IRSA (IAM Roles for Service Accounts)
+    # This allows pods to assume an IAM role for AWS service access
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/ecommerce-eks-service-role
+---
+# =============================================================================
+# ClusterRole for Dapr Sidecar Operations
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ecommerce-role
+  namespace: ecommerce
+rules:
+  # Allow reading ConfigMaps (for Dapr components)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading Secrets (for Dapr secrets)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  # Allow Dapr component access
+  - apiGroups: ["dapr.io"]
+    resources: ["components", "configurations", "subscriptions"]
+    verbs: ["get", "list", "watch"]
+---
+# =============================================================================
+# RoleBinding
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecommerce-role-binding
+  namespace: ecommerce
+subjects:
+  - kind: ServiceAccount
+    name: ecommerce-service-account
+    namespace: ecommerce
+roleRef:
+  kind: Role
+  name: ecommerce-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# =============================================================================
+# Network Policy - Restrict traffic between services
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ecommerce-network-policy
+  namespace: ecommerce
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from within the namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ecommerce
+    # Allow traffic from Dapr system namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dapr-system
+    # Allow traffic from ingress controllers
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow traffic within namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ecommerce
+    # Allow traffic to Dapr system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dapr-system
+    # Allow traffic to AWS services (SNS/SQS endpoints)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443

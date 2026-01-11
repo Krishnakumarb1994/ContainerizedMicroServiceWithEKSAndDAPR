@@ -1,0 +1,53 @@
+# =============================================================================
+# Kubernetes Namespace Configuration
+# =============================================================================
+# Creates a dedicated namespace for the e-commerce microservices
+# This provides resource isolation and easier management
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce
+  labels:
+    app.kubernetes.io/name: ecommerce
+    app.kubernetes.io/part-of: ecommerce-platform
+    environment: production
+  annotations:
+    description: "E-commerce microservices namespace with Dapr pub/sub"
+---
+# =============================================================================
+# Resource Quota for Namespace
+# =============================================================================
+# Limits total resources that can be consumed in the namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ecommerce-quota
+  namespace: ecommerce
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    pods: "50"
+    services: "20"
+---
+# =============================================================================
+# Limit Range for Namespace
+# =============================================================================
+# Default resource limits for containers in the namespace
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ecommerce-limits
+  namespace: ecommerce
+spec:
+  limits:
+    - default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      type: Container
