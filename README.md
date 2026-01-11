@@ -191,7 +191,7 @@ ecommerce-eks-dapr/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/ecommerce-eks-dapr.git
+git clone https://github.com/Krishnakumarb1994/ContainerizedMicroServiceWithEKSAndDAPR
 cd ecommerce-eks-dapr
 ```
 
